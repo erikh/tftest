@@ -3,13 +3,28 @@ package tftest
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path"
 	"testing"
 )
 
-const tfstateFilename = "tfstate"
+const (
+	tfstateFilename = "terraform.tfstate"
+	planFilename    = "plan.tf"
+)
+
+// TerraformPluginCacheDir is where the plugins we download are kept. See
+// CleanCache(). You can also override it before calling anything to move it if
+// it's a problem.
+var TerraformPluginCacheDir = "/tmp/tftest/plugin_cache"
+
+// CleanCache cleans our plugin cache by removing it. Put this in TestMain in
+// your tests.
+func CleanCache() {
+	os.RemoveAll(TerraformPluginCacheDir)
+}
 
 // State is the parsed state from terraform apply actions.
 type State map[string]interface{}
@@ -50,6 +65,8 @@ func (h Harness) tf(plandir string, command ...string) error {
 	// FIXME stream output with pipes
 	cmd := exec.Command(h.terraformPath, command...)
 	cmd.Dir = plandir
+	cmd.Env = append(os.Environ(), fmt.Sprintf("TF_PLUGIN_CACHE_DIR=%s", TerraformPluginCacheDir))
+
 	out, err := cmd.CombinedOutput()
 	h.t().Log(string(out)) // basically, always log since people can turn it off by not supplying -v
 	return err
@@ -58,19 +75,36 @@ func (h Harness) tf(plandir string, command ...string) error {
 // Apply the harness and resources with terraform. Apply additionally sets up a
 // Cleanup hook to teardown the environment when the test tears down, and
 // parses the state (see State()).
-func (h *Harness) Apply(plandir string) {
-	dir := h.t().TempDir() // out dir for state; will be reaped automatically
+func (h *Harness) Apply(planfile string) {
+	h.plandir = h.t().TempDir() // out dir for state; will be reaped automatically
 
-	h.plandir = plandir
-	h.tfstatePath = path.Join(dir, tfstateFilename)
+	source, err := os.Open(planfile)
+	if err != nil {
+		h.t().Fatalf("Could not open plan file: %v", err)
+	}
+	defer source.Close()
 
-	if err := h.tf(h.plandir, "apply", "-auto-approve", fmt.Sprintf("-state=%s", h.tfstatePath)); err != nil {
+	target, err := os.Create(path.Join(h.plandir, "plan.tf"))
+	if err != nil {
+		h.t().Fatalf("Could not open target file for writing: %v", err)
+	}
+	defer target.Close()
+
+	if _, err := io.Copy(target, source); err != nil {
+		h.t().Fatalf("Could not copy source to target: %v", err)
+	}
+
+	if err := h.tf(h.plandir, "init", h.plandir); err != nil {
+		h.t().Fatalf("while initializing terraform: %v", err)
+	}
+
+	if err := h.tf(h.plandir, "apply", "-auto-approve"); err != nil {
 		h.t().Fatalf("while applying terraform: %v", err)
 	}
 
 	h.t().Cleanup(h.Destroy)
 
-	f, err := os.Open(h.tfstatePath)
+	f, err := os.Open(path.Join(h.plandir, tfstateFilename))
 	if err != nil {
 		h.t().Fatalf("while reading tfstate: %v", err)
 	}
@@ -85,7 +119,7 @@ func (h *Harness) Apply(plandir string) {
 
 // Destroy the harness and resources with terraform. Discard this struct after calling this method.
 func (h Harness) Destroy() {
-	if err := h.tf(h.plandir, "destroy", "-auto-approve", fmt.Sprintf("-state=%s", h.tfstatePath)); err != nil {
+	if err := h.tf(h.plandir, "destroy", "-auto-approve"); err != nil {
 		h.t().Fatalf("while destroying resources with terraform: %v", err)
 	}
 }
