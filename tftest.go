@@ -130,8 +130,8 @@ func (h Harness) State() State {
 	return h.state
 }
 
-// StatePath returns the path to the state, which may be useful in certain
-// failure situations.
-func (h Harness) StatePath() string {
-	return h.tfstatePath
+// PlanDir returns the path to the plan and state, which may be useful in
+// certain failure situations.
+func (h Harness) PlanDir() string {
+	return h.plandir
 }
