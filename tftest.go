@@ -94,6 +94,8 @@ func (h *Harness) Apply(planfile string) {
 		h.t().Fatalf("Could not copy source to target: %v", err)
 	}
 
+	h.t().Cleanup(h.Destroy)
+
 	if err := h.tf(h.plandir, "init", h.plandir); err != nil {
 		h.t().Fatalf("while initializing terraform: %v", err)
 	}
@@ -101,8 +103,6 @@ func (h *Harness) Apply(planfile string) {
 	if err := h.tf(h.plandir, "apply", "-auto-approve"); err != nil {
 		h.t().Fatalf("while applying terraform: %v", err)
 	}
-
-	h.t().Cleanup(h.Destroy)
 
 	f, err := os.Open(path.Join(h.plandir, tfstateFilename))
 	if err != nil {
