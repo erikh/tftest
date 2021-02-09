@@ -1,13 +1,20 @@
 package tftest
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path"
+	"sync"
+	"syscall"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -36,10 +43,13 @@ type Harness struct {
 	state         State // will be nil until after apply
 	tfstatePath   string
 	plandir       string
+	commandLock   sync.Mutex
+	commandCancel context.CancelFunc
+	sigCancel     context.CancelFunc
 }
 
 // New creates a new tftest harness
-func New(t *testing.T) Harness {
+func New(t *testing.T) *Harness {
 	var h Harness
 
 	h.terraformPath = os.Getenv("TFTEST_TERRAFORM")
@@ -54,16 +64,25 @@ func New(t *testing.T) Harness {
 
 	h.testingT = t
 
-	return h
+	return &h
 }
 
-func (h Harness) t() *testing.T {
+func (h *Harness) t() *testing.T {
 	return h.testingT
 }
 
-func (h Harness) tf(plandir string, command ...string) error {
+func (h *Harness) tf(plandir string, command ...string) error {
+	h.commandLock.Lock()
+	defer h.commandLock.Unlock()
+	if h.commandCancel != nil {
+		h.commandCancel()
+	}
+
+	var ctx context.Context
+	ctx, h.commandCancel = context.WithCancel(context.Background())
+
 	// FIXME stream output with pipes
-	cmd := exec.Command(h.terraformPath, command...)
+	cmd := exec.CommandContext(ctx, h.terraformPath, command...)
 	cmd.Dir = plandir
 	cmd.Env = append(os.Environ(), fmt.Sprintf("TF_PLUGIN_CACHE_DIR=%s", TerraformPluginCacheDir))
 
@@ -118,7 +137,7 @@ func (h *Harness) Apply(planfile string) {
 }
 
 // Destroy the harness and resources with terraform. Discard this struct after calling this method.
-func (h Harness) Destroy() {
+func (h *Harness) Destroy() {
 	if err := h.tf(h.plandir, "destroy", "-auto-approve"); err != nil {
 		h.t().Fatalf("while destroying resources with terraform: %v", err)
 	}
@@ -126,12 +145,42 @@ func (h Harness) Destroy() {
 
 // State corresponds to the terraform state. This is ingested on each "apply"
 // step, and will be nil until apply is called the first time.
-func (h Harness) State() State {
+func (h *Harness) State() State {
 	return h.state
 }
 
 // PlanDir returns the path to the plan and state, which may be useful in
 // certain failure situations.
-func (h Harness) PlanDir() string {
+func (h *Harness) PlanDir() string {
 	return h.plandir
+}
+
+// HandleSignals handles SIGINT and SIGTERM to ensure that containers get
+// cleaned up. It is expected that no other signal handler will be installed
+// afterwards. If the forward argument is true, it will forward the signal back
+// to its own process after deregistering itself as the signal handler,
+// allowing your test suite to exit gracefully. Set it to false to stay out of
+// your way.
+//
+// taken from https://github.com/erikh/duct
+func (h *Harness) HandleSignals(forward bool) {
+	ctx, cancel := context.WithCancel(context.Background())
+	h.sigCancel = cancel
+	sigChan := make(chan os.Signal, 2)
+
+	go func() {
+		select {
+		case sig := <-sigChan:
+			log.Println("Signalled; will destroy terraform now")
+			h.Destroy()
+			signal.Stop(sigChan) // stop letting us get notified
+			if forward {
+				unix.Kill(os.Getpid(), sig.(syscall.Signal))
+			}
+		case <-ctx.Done():
+			signal.Stop(sigChan)
+		}
+	}()
+
+	signal.Notify(sigChan, unix.SIGINT, unix.SIGTERM)
 }
