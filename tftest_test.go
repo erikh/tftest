@@ -12,4 +12,10 @@ func TestTFTest(t *testing.T) {
 	if len(tf.State()) == 0 {
 		t.Fatal("state was not parsed")
 	}
+
+	tf.Update()
+
+	if len(tf.State()) == 0 {
+		t.Fatal("state was not parsed")
+	}
 }

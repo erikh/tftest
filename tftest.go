@@ -136,6 +136,17 @@ func (h *Harness) Apply(planfile string) {
 	}
 }
 
+// Update applies terraform update to an existing tftest plandir.
+func (h *Harness) Update() {
+	if h.plandir == "" {
+		h.t().Fatal("run Apply() first!")
+	}
+
+	if err := h.tf(h.plandir, "init", h.plandir); err != nil {
+		h.t().Fatalf("while updating terraform: %v", err)
+	}
+}
+
 // Destroy the harness and resources with terraform. Discard this struct after calling this method.
 func (h *Harness) Destroy() {
 	if err := h.tf(h.plandir, "destroy", "-auto-approve"); err != nil {
