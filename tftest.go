@@ -123,6 +123,10 @@ func (h *Harness) Apply(planfile string) {
 		h.t().Fatalf("while applying terraform: %v", err)
 	}
 
+	h.readState()
+}
+
+func (h *Harness) readState() {
 	f, err := os.Open(path.Join(h.plandir, tfstateFilename))
 	if err != nil {
 		h.t().Fatalf("while reading tfstate: %v", err)
@@ -136,15 +140,17 @@ func (h *Harness) Apply(planfile string) {
 	}
 }
 
-// Update applies terraform update to an existing tftest plandir.
-func (h *Harness) Update() {
+// Refresh applies terraform update to an existing tftest plandir.
+func (h *Harness) Refresh() {
 	if h.plandir == "" {
 		h.t().Fatal("run Apply() first!")
 	}
 
-	if err := h.tf(h.plandir, "init", h.plandir); err != nil {
-		h.t().Fatalf("while updating terraform: %v", err)
+	if err := h.tf(h.plandir, "refresh"); err != nil {
+		h.t().Fatalf("while refresh terraform: %v", err)
 	}
+
+	h.readState()
 }
 
 // Destroy the harness and resources with terraform. Discard this struct after calling this method.

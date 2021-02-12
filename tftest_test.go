@@ -13,7 +13,7 @@ func TestTFTest(t *testing.T) {
 		t.Fatal("state was not parsed")
 	}
 
-	tf.Update()
+	tf.Refresh()
 
 	if len(tf.State()) == 0 {
 		t.Fatal("state was not parsed")
