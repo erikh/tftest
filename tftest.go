@@ -23,9 +23,18 @@ const (
 )
 
 // TerraformPluginCacheDir is where the plugins we download are kept. See
-// CleanCache(). You can also override it before calling anything to move it if
-// it's a problem.
+// InitCache() (called on boot) and CleanCache(). You can also override it
+// before calling anything to move it if it's a problem.
 var TerraformPluginCacheDir = "/tmp/tftest/plugin_cache"
+
+func init() {
+	InitCache()
+}
+
+// InitCache creates the cache directory. It does not care about errors.
+func InitCache() {
+	os.MkdirAll(TerraformPluginCacheDir, 0700)
+}
 
 // CleanCache cleans our plugin cache by removing it. Put this in TestMain in
 // your tests.
@@ -115,7 +124,7 @@ func (h *Harness) Apply(planfile string) {
 
 	h.t().Cleanup(h.Destroy)
 
-	if err := h.tf(h.plandir, "init", h.plandir); err != nil {
+	if err := h.tf(h.plandir, fmt.Sprintf("-chdir=%s", h.plandir), "init"); err != nil {
 		h.t().Fatalf("while initializing terraform: %v", err)
 	}
 
