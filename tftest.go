@@ -103,6 +103,8 @@ func (h *Harness) tf(plandir string, command ...string) error {
 // Apply the harness and resources with terraform. Apply additionally sets up a
 // Cleanup hook to teardown the environment when the test tears down, and
 // parses the state (see State()).
+//
+// The cleanup hook is not installed when NO_CLEANUP=1 is set in the environment.
 func (h *Harness) Apply(planfile string) {
 	h.plandir = h.t().TempDir() // out dir for state; will be reaped automatically
 
@@ -122,7 +124,9 @@ func (h *Harness) Apply(planfile string) {
 		h.t().Fatalf("Could not copy source to target: %v", err)
 	}
 
-	h.t().Cleanup(h.Destroy)
+	if os.Getenv("NO_CLEANUP") == "" {
+		h.t().Cleanup(h.Destroy)
+	}
 
 	if err := h.tf(h.plandir, fmt.Sprintf("-chdir=%s", h.plandir), "init"); err != nil {
 		h.t().Fatalf("while initializing terraform: %v", err)
