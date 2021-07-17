@@ -2,4 +2,4 @@ module github.com/erikh/tftest
 
 go 1.15
 
-require golang.org/x/sys v0.0.0-20210124154548-22da62e12c0c
+require golang.org/x/sys v0.0.0-20210630005230-0f9fa26af87c
